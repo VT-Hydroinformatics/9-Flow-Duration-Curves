@@ -1,3 +1,10 @@
+---
+title: "9 - Flow Duration Curves"
+format:
+  html: 
+    self-contained: true
+---
+
 # Flow Duration Curves {#fdcs}
 
 Get this document and a version with empty code chunks at the template repository on github: <https://github.com/VT-Hydroinformatics/9-Flow-Duration-Curves>
@@ -28,7 +35,17 @@ To start, let's grab the USGS discharge data for the gage in Linville NC from 19
 We will download the data using USGS dataRetrieval and look at a line plot.
 
 ```{r}
+siteno <- "02138500" #Linville NC
+startDate <- "1960-01-01"
+endDate <- "2020-01-01"
+parameter <- "00060"
 
+Qdat <- readNWISdv(siteno, parameter, startDate, endDate) |> 
+  renameNWISColumns()
+
+#Look at the data
+Qdat |> ggplot(aes(x = Date, y = Flow))+
+  geom_line()
 ```
 
 ## Review: describe the distribution
@@ -42,6 +59,10 @@ Make a plot to view the distribution of the discharge data.
 * What about the flow the river is at or above only 5% of the time?
 
 ```{r}
+Qdat |> ggplot(aes(Flow))+
+  stat_density()+
+  scale_x_log10()+
+  geom_vline(xintercept = median(Qdat$Flow), color = "red")
 
 ```
 
@@ -56,7 +77,11 @@ Plot the median again. Without the line on the plot, how would you tell where th
 Given your answer to the question above, can you determine the flow the river is at or above only 25% of the time? Think carefully about what the y axis of the ECDF means.
 
 ```{r}
-
+Qdat |> ggplot(aes(Flow))+
+  stat_ecdf()+
+  scale_x_log10()+
+  geom_vline(xintercept = median(Qdat$Flow), color = "red")+
+  geom_vline(xintercept = quantile(Qdat$Flow)[4], color = "blue")
 ```
 
 ## Calculate flow exceedence probabilities
@@ -79,7 +104,11 @@ Here's a description of what we will do:
 > Then pass that result to mutate again and create another column equal exceedence probability (P) * 100, which will give us %.
 
 ```{r}
-
+#Flow is negative in rank() to make 
+#high flows ranked low (#1)
+Qdat <- Qdat |>
+  mutate(rank = rank(-Flow)) |>
+  mutate(P = 100 * (rank / (length(Flow) + 1)))
 ```
 
 ## Plot a Flow Duration Curve using the probabilities
@@ -96,6 +125,11 @@ Questions about the flow duration curve:
 * What would the X axis be called if we were using maximum yearly data?
 
 ```{r}
+Qdat |> ggplot(aes(x = P, y = Flow))+
+  geom_line()+
+  scale_y_log10()+
+  xlab("% Time flow equalled or exceeded")+
+  ylab("Q (cfs)")
 
 ```
 
@@ -106,7 +140,13 @@ Below is an example of making a very similar plot with the stat_ecdf() geometry 
 To make the plot similar, we will reverse the y axis of the ecdf plot with scale_y_reverse and flip the axes (change the x to y and the y to x) with coord_flip()
 
 ```{r}
-
+Qdat |> ggplot(aes(Flow))+
+  stat_ecdf()+
+  scale_x_log10()+
+  scale_y_reverse()+
+  coord_flip()+
+  xlab("Q (cfs)")+
+  ylab("Probability flow is not exceeded")
 ```
 
 ## Example use of an FDC
@@ -122,7 +162,22 @@ We will then group the data by these periods and calculate exceedence probabilit
 Describe the differences in flow regime you see between the three periods of 1960-1980, 1980-2000, and 2000-2020.
 
 ```{r}
+Qdat <- Qdat |>
+  mutate(year = year(Date)) |>
+  mutate(period = case_when( year <= 1980 ~ "1960-1980",
+                             year > 1980 & year <= 2000 ~ "1980-2000",
+                             year > 2000 ~ "2000-2020"))
 
+Qdat <- Qdat |>
+  group_by(period) |>
+  mutate(rank = rank(-Flow)) |> 
+  mutate(P = 100 * (rank / (length(Flow) + 1)))
+
+Qdat |> ggplot(aes(x = P, y = Flow, color = period))+
+  geom_line()+
+  scale_y_log10()+
+  xlab("% Time flow equalled or exceeded")+
+  ylab("Q (cfs)")
 ```
 
 ## Compare to a boxplot of the same data
@@ -132,7 +187,9 @@ We are really just looking at the data distribution here. Remember another good 
 What are the advantages/disadvantages of the flow duration curves vs. boxplots?
 
 ```{r, fig.width = 5, fig.height = 5}
-
+Qdat |> ggplot(aes(x = period, y = Flow)) +
+  geom_boxplot()+
+  scale_y_log10()
 ```
 
 ## Challenge: Examining flow regime change at the Grand Canyon
@@ -142,6 +199,30 @@ The USGS Gage "Colorado River at Yuma, AZ" is below the Hoover dam. The Hoover D
 How does the FDC show the differences you observed in the line plot?
 
 ```{r}
+siteid <- "09521000"
+startDate <- "1905-10-01"
+endDate <- "1965-10-01"
+parameter <- "00060"
 
+WS <- readNWISdv(siteid, parameter, startDate, endDate) |> 
+  renameNWISColumns() |>
+  mutate(year = year(Date)) |>
+  mutate(period = case_when( year <= 1936 ~ "Pre Dam",
+                             year > 1936  ~ "Post Dam")) |>
+  group_by(period) |>
+  mutate(rank = rank(-Flow)) |> 
+  mutate(P = 100 * (rank / (length(Flow) + 1)))
+
+flow <- ggplot(WS, aes(Date, Flow, color = period))+
+  geom_line()+
+  ylab("Q (cfs)")
+
+fdc <- WS |> ggplot(aes(x = P, y = Flow, color = period))+
+  geom_line()+
+  #scale_y_log10()+
+  xlab("% Time flow equalled or exceeded")+
+  ylab("Q (cfs)")
+
+flow / (fdc + plot_spacer())
 ```
 That's it! Next we will apply some of these principles to look at low-flow statistics.
